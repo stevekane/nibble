@@ -103,24 +103,26 @@ impl <I:Iterator<Item=u8>, A> Consumed<I, A> {
 // parser! first_two<I:Iterator<Item=u8>, O> {
 //     d1 <- digit
 //     d2 <- digit
-//     return (d1, d2)
+//     d3 <- char | digit
+//     return (d1, d2, d3)
 // }
 
-fn first_two<I:Iterator<Item=u8>> (i: I) -> Consumed<I, (u8, u8)> {
+fn test_parser<I:Iterator<Item=u8>> (i: I) -> Consumed<I, (u8, u8, u8)> {
     digit(i).bind(|d1, i|
     digit(i).bind(|d2, i| 
-    Consumed::Consumed(Reply::Ok((d1, d2), i))))
+    char(i).choice(digit).bind(|d3, i|
+    Consumed::Consumed(Reply::Ok((d1, d2, d3), i)))))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::first_two;
+    use super::test_parser;
 
     #[test]
     fn test_do_block() {
         let string = String::from("123145skfjhalb1");
         let bytes = string.bytes();
-        let result = first_two(bytes);
+        let result = test_parser(bytes);
 
         println!("{:?}", result);
     }
