@@ -1,18 +1,18 @@
 use std::fmt;
 
-pub enum Reply<I:Iterator<Item=u8>, O> {
-    Ok(O, I),
-    Err(I)
+pub enum Reply<'a, O> {
+    Ok(O, &'a [u8]),
+    Err(&'a [u8])
 }
 
-pub enum Consumed<I:Iterator<Item=u8>, O> {
-    Consumed(Reply<I, O>),
-    Empty(Reply<I, O>),
+pub enum Consumed<'a, O> {
+    Consumed(Reply<'a, O>),
+    Empty(Reply<'a, O>),
 }
 
-pub type Parser<I, O> = Fn(I) -> Consumed<I, O>;
+pub type Parser<'a, O> = Fn(&[u8]) -> Consumed<'a, O>;
 
-impl <I:Iterator<Item=u8>, O:fmt::Debug> fmt::Debug for Reply<I, O> {
+impl <'a, O:fmt::Debug> fmt::Debug for Reply<'a, O> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             &Reply::Ok(ref t, _) => write!(f, "Ok({:?}, Iterator)", t),
@@ -21,7 +21,7 @@ impl <I:Iterator<Item=u8>, O:fmt::Debug> fmt::Debug for Reply<I, O> {
     }
 }
 
-impl <I:Iterator<Item=u8>, O:fmt::Debug> fmt::Debug for Consumed<I, O> {
+impl <'a, O:fmt::Debug> fmt::Debug for Consumed<'a, O> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             &Consumed::Consumed(ref reply) => write!(f, "Consumed({:?})", reply),
@@ -35,33 +35,29 @@ pub fn is_alpha(b: u8) -> bool { (b as char).is_alphabetic() }
 #[inline]
 pub fn is_digit(b: u8) -> bool { (b as char).is_digit(10) }
 
-pub fn digit<I>(mut input: I) -> Consumed<I, u8> 
-    where I:Iterator<Item=u8> {
-
-    match input.next() {
+pub fn digit<'a>(input: &'a [u8]) -> Consumed<'a, u8> {
+    match input.first() {
         None    => Consumed::Empty(Reply::Err(input)),
-        Some(b) => match (b as char).is_digit(10) {
-            true  => Consumed::Consumed(Reply::Ok(b, input)),
+        Some(b) => match (*b as char).is_digit(10) {
+            true  => Consumed::Consumed(Reply::Ok(*b, &input[1..])),
             false => Consumed::Empty(Reply::Err(input)),
         }
     }
 }
 
-pub fn char<I>(mut input: I) -> Consumed<I, u8>
-    where I:Iterator<Item=u8> {
-
-    match input.next() {
+pub fn char<'a>(input: &'a [u8]) -> Consumed<'a, u8> {
+    match input.first() {
         None    => Consumed::Empty(Reply::Err(input)),
-        Some(b) => match (b as char).is_alphabetic() {
-            true  => Consumed::Consumed(Reply::Ok(b, input)),
+        Some(b) => match (*b as char).is_alphabetic() {
+            true  => Consumed::Consumed(Reply::Ok(*b, &input[1..])),
             false => Consumed::Empty(Reply::Err(input)),
         }
     }
 }
 
-impl <I:Iterator<Item=u8>, A> Consumed<I, A> {
-    pub fn bind<F, B> (self, f: F) -> Consumed<I, B>
-        where F:FnOnce(A, I) -> Consumed<I, B> {
+impl <'a, A> Consumed<'a, A> {
+    pub fn bind<F, B> (self, f: F) -> Consumed<'a, B>
+        where F:FnOnce(A, &'a [u8]) -> Consumed<'a, B> {
         
         use Consumed::{Empty, Consumed};
         use Reply::{Ok, Err};
@@ -81,10 +77,8 @@ impl <I:Iterator<Item=u8>, A> Consumed<I, A> {
         } 
     }
 
-    //TODO: consider switching to consume a fixed buffer instead of iterator
-    //this solves some complexities with look ahead on iterators
-    pub fn choice<F> (self, f:F) -> Consumed<I, A>
-        where F:FnOnce(I) -> Consumed<I, A> {
+    pub fn choice<F> (self, f:F) -> Consumed<'a, A>
+        where F:FnOnce(&'a [u8]) -> Consumed<'a, A> {
         
         use Consumed::Empty;
         use Reply::{Ok, Err};
@@ -100,30 +94,50 @@ impl <I:Iterator<Item=u8>, A> Consumed<I, A> {
     }
 }
 
-// parser! first_two<I:Iterator<Item=u8>, O> {
+// parser! first_two<&[u8], O> {
 //     d1 <- digit
 //     d2 <- digit
 //     d3 <- char | digit
 //     return (d1, d2, d3)
 // }
 
-fn test_parser<I:Iterator<Item=u8>> (i: I) -> Consumed<I, (u8, u8, u8)> {
+fn many_chars<'a>(i: &'a [u8]) -> Consumed<'a, &[u8]> {
+    use Consumed::{Consumed, Empty};
+    use Reply::{Ok, Err};
+    
+    //char(i).bind(|x, i|
+    //many_chars(i).choice(|i| Consumed(Ok(&[], i)))).bind(|xs, i|
+    //Consumed(Ok(xs, i)))
+    char(i).bind(|x, i|
+    Consumed(Ok(&[x], i)))
+}
+
+fn test_parser<'a>(i: &'a [u8]) -> Consumed<'a, (u8, u8, u8)> {
     digit(i).bind(|d1, i|
     digit(i).bind(|d2, i| 
-    char(i).choice(digit).bind(|d3, i|
+    char(i).choice(|i| digit(i)).bind(|d3, i|
     Consumed::Consumed(Reply::Ok((d1, d2, d3), i)))))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::test_parser;
+    use super::{test_parser, many_chars};
 
     #[test]
     fn test_do_block() {
         let string = String::from("123145skfjhalb1");
-        let bytes = string.bytes();
-        let result = test_parser(bytes);
+        let input = string.as_bytes();
+        let result = test_parser(input);
 
+        println!("{:?}", result);
+    }
+
+    #[test]
+    fn test_repeating_parser() {
+        let string = String::from("asdabfkjasbf123145skfjhalb1");
+        let input = string.as_bytes();
+        let result = many_chars(input);
+    
         println!("{:?}", result);
     }
 }
