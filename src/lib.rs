@@ -1,34 +1,15 @@
-use std::fmt;
+use std::fmt::Debug;
 
+#[derive(Debug, Eq, PartialEq)]
 pub enum Reply<'a, O> {
     Ok(O, &'a [u8]),
     Err(&'a [u8])
 }
 
+#[derive(Debug, Eq, PartialEq)]
 pub enum Consumed<'a, O> {
     Consumed(Reply<'a, O>),
     Empty(Reply<'a, O>),
-}
-
-// Not actually used since higher-order functions are sort of impossible...
-pub type Parser<'a, O> = Fn(&[u8]) -> Consumed<'a, O>;
-
-impl <'a, O:fmt::Debug> fmt::Debug for Reply<'a, O> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &Reply::Ok(ref t, _) => write!(f, "Ok({:?}, Iterator)", t),
-            &Reply::Err(_)       => write!(f, "Err"),
-        } 
-    }
-}
-
-impl <'a, O:fmt::Debug> fmt::Debug for Consumed<'a, O> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &Consumed::Consumed(ref reply) => write!(f, "Consumed({:?})", reply),
-            &Consumed::Empty(ref reply)    => write!(f, "Empty({:?})", reply),
-        } 
-    }
 }
 
 impl <'a, A> Consumed<'a, A> {
@@ -92,7 +73,8 @@ pub fn satisfy<'a, F>(f: F, input: &'a [u8]) -> Consumed<'a, u8>
 
 #[inline]
 fn many<'a, P, O>(p: P, i: &'a [u8]) -> Consumed<'a, Vec<O>>
-    where P: Fn(&[u8]) -> Consumed<O> {
+    where P: Fn(&[u8]) -> Consumed<O>,
+          O: Debug {
     use Consumed::{Consumed, Empty};
     use Reply::{Ok, Err};
 
