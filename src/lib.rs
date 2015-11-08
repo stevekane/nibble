@@ -30,31 +30,6 @@ impl <'a, O:fmt::Debug> fmt::Debug for Consumed<'a, O> {
     }
 }
 
-#[inline]
-pub fn is_alpha(b: u8) -> bool { (b as char).is_alphabetic() }
-#[inline]
-pub fn is_digit(b: u8) -> bool { (b as char).is_digit(10) }
-
-pub fn digit<'a>(input: &'a [u8]) -> Consumed<'a, u8> {
-    match input.first() {
-        None    => Consumed::Empty(Reply::Err(input)),
-        Some(b) => match (*b as char).is_digit(10) {
-            true  => Consumed::Consumed(Reply::Ok(*b, &input[1..])),
-            false => Consumed::Empty(Reply::Err(input)),
-        }
-    }
-}
-
-pub fn char<'a>(input: &'a [u8]) -> Consumed<'a, u8> {
-    match input.first() {
-        None    => Consumed::Empty(Reply::Err(input)),
-        Some(b) => match (*b as char).is_alphabetic() {
-            true  => Consumed::Consumed(Reply::Ok(*b, &input[1..])),
-            false => Consumed::Empty(Reply::Err(input)),
-        }
-    }
-}
-
 impl <'a, A> Consumed<'a, A> {
     pub fn bind<F, B> (self, f: F) -> Consumed<'a, B>
         where F:FnOnce(A, &'a [u8]) -> Consumed<'a, B> {
@@ -94,50 +69,123 @@ impl <'a, A> Consumed<'a, A> {
     }
 }
 
-// parser! first_two<&[u8], O> {
-//     d1 <- digit
-//     d2 <- digit
-//     d3 <- char | digit
-//     return (d1, d2, d3)
-// }
+#[inline]
+pub fn is_alpha(b: u8) -> bool { (b as char).is_alphabetic() }
 
-fn many_chars<'a>(i: &'a [u8]) -> Consumed<'a, &[u8]> {
+#[inline]
+pub fn is_digit(b: u8) -> bool { (b as char).is_digit(10) }
+
+#[inline]
+pub fn satisfy<'a, F>(f: F, input: &'a [u8]) -> Consumed<'a, u8> 
+    where F: FnOnce(u8) -> bool {
+    match input.first() {
+        None    => Consumed::Empty(Reply::Err(input)),
+        Some(b) => match f(*b) {
+            true  => Consumed::Consumed(Reply::Ok(*b, &input[1..])),
+            false => Consumed::Empty(Reply::Err(input)),
+        }
+    }
+}
+
+#[inline]
+fn many<'a, P, O>(p: P, i: &'a [u8]) -> Consumed<'a, Vec<O>>
+    where P: Fn(&[u8]) -> Consumed<O> {
     use Consumed::{Consumed, Empty};
     use Reply::{Ok, Err};
-    
-    //char(i).bind(|x, i|
-    //many_chars(i).choice(|i| Consumed(Ok(&[], i)))).bind(|xs, i|
-    //Consumed(Ok(xs, i)))
-    char(i).bind(|x, i|
-    Consumed(Ok(&[x], i)))
+
+    let mut matches = vec![];
+    let mut changing_input = i;
+
+    loop {
+        match p(changing_input) {
+            Empty(Ok(_, _)) => continue,
+            Consumed(Ok(res, i)) => {
+                matches.push(res);
+                changing_input = i;
+            },
+            Consumed(Err(i)) => match matches.len() {
+                0 => return Consumed(Err(i)),
+                _ => return Consumed(Ok(matches, i))
+            },
+            Empty(Err(i)) => match matches.len() {
+                0 => return Empty(Err(i)),
+                _ => return Consumed(Ok(matches, i)),
+            },
+        }
+    } 
+}
+
+#[inline]
+pub fn digit<'a>(i: &'a [u8]) -> Consumed<'a, u8> {
+    satisfy(is_digit, i)
+}
+
+#[inline]
+pub fn character<'a>(i: &'a [u8]) -> Consumed<'a, u8> {
+    satisfy(is_alpha, i)
+}
+
+#[inline]
+pub fn many_char<'a>(i: &'a [u8]) -> Consumed<'a, Vec<u8>> {
+    many(character, i)
+}
+
+#[inline]
+pub fn many_digit<'a>(i: &'a [u8]) -> Consumed<'a, Vec<u8>> {
+    many(digit, i)
 }
 
 fn test_parser<'a>(i: &'a [u8]) -> Consumed<'a, (u8, u8, u8)> {
     digit(i).bind(|d1, i|
     digit(i).bind(|d2, i| 
-    char(i).choice(|i| digit(i)).bind(|d3, i|
+    character(i).choice(digit).bind(|d3, i|
     Consumed::Consumed(Reply::Ok((d1, d2, d3), i)))))
 }
 
+// parser! text_parser<&[u8], O> {
+//     d1 <- digit
+//     d2 <- digit
+//     d3 <- character | digit
+//     return (d1, d2, d3)
+// }
+
+
 #[cfg(test)]
 mod tests {
-    use super::{test_parser, many_chars};
+    use super::{test_parser, many, character, digit, many_digit, many_char};
+    use super::Consumed::Consumed;
+    use super::Reply::Ok;
 
     #[test]
     fn test_do_block() {
-        let string = String::from("123145skfjhalb1");
-        let input = string.as_bytes();
-        let result = test_parser(input);
+        let str1 = String::from("123145skfjhalb1");
+        let str2 = String::from("12a145skfjhalb1");
+        let input1 = str1.as_bytes();
+        let input2 = str2.as_bytes();
+        let result1 = test_parser(input1);
+        let result2 = test_parser(input2);
 
+        println!("{:?}", result1);
+        println!("{:?}", result2);
+    }
+
+    #[test]
+    fn test_many() {
+        let string = String::from("asdabfkjasbf123145skfjhalb1");
+        let input = string.as_bytes();
+        let result = many_char(input).bind(|chars, i| 
+                     many_digit(i).bind(|digits, i| 
+                     Consumed(Ok((chars, digits), i))));
+    
         println!("{:?}", result);
     }
 
     #[test]
-    fn test_repeating_parser() {
-        let string = String::from("asdabfkjasbf123145skfjhalb1");
-        let input = string.as_bytes();
-        let result = many_chars(input);
-    
+    fn test_many_complex() {
+        let str = String::from("123145skfjhalb1");
+        let input = str.as_bytes();
+        let result = many(test_parser, input);
+
         println!("{:?}", result);
     }
 }
