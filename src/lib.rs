@@ -44,7 +44,7 @@ impl <'a, A> Consumed<'a, A> {
             Empty(Err(i))   => f(i),
             Empty(Ok(o, i)) => match f(i) {
                 Empty(Ok(_, i)) => Empty(Ok(o, i)),
-                consumed @ _ => consumed,
+                consumed @ _    => consumed,
             },
             consumed @ _ => consumed
         }
@@ -129,13 +129,16 @@ fn test_parser<'a>(i: &'a [u8]) -> Consumed<'a, (u8, u8, u8)> {
 }
 
 // desired do-block macro syntax for composition of parsers
-// parser! text_parser<&[u8], O> {
+// parser! text_parser<'a>(&'a [u8]) -> Consumed<'a, (u8, u8, u8)> {
 //     d1 <- digit
 //     d2 <- digit
 //     d3 <- character | digit
 //     return (d1, d2, d3)
 // }
-
+//
+// ideally the syntax below should be used and the lifetime annotations and surrounding
+// return-type boilerplate could be added by the macro
+// parser! test_parser -> (u8, u8, u8) { //.... } 
 
 #[cfg(test)]
 mod tests {
