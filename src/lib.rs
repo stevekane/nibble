@@ -10,6 +10,7 @@ pub enum Consumed<'a, O> {
     Empty(Reply<'a, O>),
 }
 
+// Not actually used since higher-order functions are sort of impossible...
 pub type Parser<'a, O> = Fn(&[u8]) -> Consumed<'a, O>;
 
 impl <'a, O:fmt::Debug> fmt::Debug for Reply<'a, O> {
@@ -69,12 +70,14 @@ impl <'a, A> Consumed<'a, A> {
     }
 }
 
+// predicates
 #[inline]
 pub fn is_alpha(b: u8) -> bool { (b as char).is_alphabetic() }
 
 #[inline]
 pub fn is_digit(b: u8) -> bool { (b as char).is_digit(10) }
 
+// core parsers
 #[inline]
 pub fn satisfy<'a, F>(f: F, input: &'a [u8]) -> Consumed<'a, u8> 
     where F: FnOnce(u8) -> bool {
@@ -115,6 +118,7 @@ fn many<'a, P, O>(p: P, i: &'a [u8]) -> Consumed<'a, Vec<O>>
     } 
 }
 
+// custom parsers
 #[inline]
 pub fn digit<'a>(i: &'a [u8]) -> Consumed<'a, u8> {
     satisfy(is_digit, i)
@@ -142,6 +146,7 @@ fn test_parser<'a>(i: &'a [u8]) -> Consumed<'a, (u8, u8, u8)> {
     Consumed::Consumed(Reply::Ok((d1, d2, d3), i)))))
 }
 
+// desired do-block macro syntax for composition of parsers
 // parser! text_parser<&[u8], O> {
 //     d1 <- digit
 //     d2 <- digit
